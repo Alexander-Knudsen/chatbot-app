@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ config.bot_name }}</title>
+    <!-- Linking to the bot-specific stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/' + config.css_file) }}">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Dynamic theme colors -->
+    <style>
+        :root {
+            --primary-color: {{ config.theme_colors.primary }};
+            --secondary-color: {{ config.theme_colors.secondary }};
+        }
+    </style>
+    <!-- Meta tags for responsive design and security -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+</head>
+<body>
+    <!-- Chat Button -->
+    <button id="chatBtn" class="chat-btn" aria-label="Open Chat" title="Open Chat">
+        <img src="{{ url_for('static', filename='images/chat-icon.png') }}" alt="Chat Icon">
+    </button>
+
+    <!-- Chat Container -->
+    <div class="chat-container" id="chatContainer" style="display:none;"
+         data-bot-name="{{ config['bot_name'] }}"
+         data-bot-id="{{ config['bot_id'] }}"
+         data-api-url="{{ url_for('chat', bot_id=config['bot_id']) }}"
+         data-feedback-url="{{ url_for('feedback', bot_id=config['bot_id']) }}"
+         data-clear-url="{{ url_for('clear_conversation', bot_id=config['bot_id']) }}"
+         data-directions-url="{{ url_for('directions', bot_id=config['bot_id']) }}"
+         data-csrf-token="{{ csrf_token() }}"
+         data-render-images="{{ config.render_images | lower }}">
+        <div class="chat-header">
+            <img src="{{ url_for('static', filename='images/profile-pic.jpg') }}" alt="{{ config.bot_name }} Avatar" class="avatar">
+            <div class="chat-title">
+                <h2>{{ config.bot_name }}</h2>
+                <p>Your Virtual Assistant</p>
+            </div>
+            <button class="close-btn" id="closeChatBtn" aria-label="Close Chat" title="Close Chat">&times;</button>
+        </div>
+        
+        <!-- Chat Body (Messages will be appended here) -->
+        <div class="chat-body" id="chatBody" aria-live="polite">
+            <!-- Chat messages will dynamically appear here -->
+        </div>
+        
+        <!-- Chat Footer -->
+        <div class="chat-footer">
+            <input type="text" id="userInput" placeholder="Type your message..." autocomplete="off" aria-label="Your Message">
+            <button id="sendBtn" aria-label="Send Message" title="Send Message">&#9658;</button>
+        </div>
+
+        <!-- Confirmation Popup -->
+        <div class="confirm-popup" id="confirmPopup" style="display:none;">
+            <p>Are you sure you want to end the chat?</p>
+            <button id="endChatBtn" class="confirm-btn">End Chat</button>
+            <button id="cancelBtn" class="confirm-btn">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS and Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Linking to the JavaScript file -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

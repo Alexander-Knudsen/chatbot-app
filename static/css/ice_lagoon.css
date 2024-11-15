@@ -1,0 +1,363 @@
+/* General Styles */
+body {
+    font-family: 'Roboto', Arial, sans-serif;
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #f0f4f8; /* Light background for contrast */
+}
+
+/* Chat Button */
+.chat-btn {
+    background-color: #1E3A8A; /* Rich Deep Blue */
+    border: none;
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.chat-btn img {
+    width: 30px;
+    height: 30px;
+    filter: invert(100%);
+}
+
+/* Chat button hover effect */
+.chat-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Hidden Chat Container */
+.chat-container {
+    width: 350px;
+    background-color: #ffffff; /* White background for chat container */
+    border-radius: 10px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    display: none;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+/* Header */
+.chat-header {
+    padding: 15px;
+    background-color: #1E3A8A; /* Rich Deep Blue */
+    color: white;
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid #1D4ED8; /* Slightly lighter blue for border */
+}
+
+.avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.chat-title h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.chat-title p {
+    margin: 0;
+    font-size: 12px;
+    color: #c0d7ff; /* Light Blue for subtitle */
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    margin-left: auto;
+    cursor: pointer;
+}
+
+/* Chat Body */
+.chat-body {
+    padding: 15px;
+    height: 350px;
+    overflow-y: auto;
+    background-color: #f0f4f8; /* Very Light Blue */
+    scrollbar-width: thin;
+    scrollbar-color: #1D4ED8 #f0f4f8;
+}
+
+.chat-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chat-body::-webkit-scrollbar-track {
+    background: #f0f4f8;
+}
+
+.chat-body::-webkit-scrollbar-thumb {
+    background-color: #1D4ED8; /* Medium Rich Blue */
+    border-radius: 10px;
+}
+
+/* Message styling */
+.chat-body .chat-message {
+    margin-bottom: 10px;
+    animation: slideUp 0.3s ease-out;
+    padding: 10px;
+    background-color: #e1f0f8; /* Light Blue */
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.chat-body .chat-message.you {
+    background-color: #cce4ff; /* Lighter Blue for User Messages */
+    align-self: flex-end;
+}
+
+.chat-body .chat-message.bot {
+    background-color: #e1f0f8; /* Consistent Light Blue for Bot Messages */
+    align-self: flex-start;
+}
+
+.chat-message strong {
+    color: #1D4ED8; /* Medium Rich Blue */
+    font-weight: bold;
+}
+
+/* Chat Footer */
+.chat-footer {
+    padding: 15px;
+    background-color: #f1faff; /* Very Light Blue */
+    border-top: 1px solid #f1faff; /* Medium Rich Blue */
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+#userInput {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #1D4ED8; /* Medium Rich Blue */
+    border-radius: 20px;
+    outline: none;
+    font-size: 14px;
+}
+
+#userInput:focus {
+    border-color: #1E3A8A; /* Rich Deep Blue */
+}
+
+#sendBtn {
+    background-color: #1D4ED8; /* Medium Rich Blue */
+    border: none;
+    color: white;
+    padding: 10px;
+    border-radius: 50%;
+    cursor: pointer;
+    margin-left: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 40px;
+    height: 40px;
+    transition: background-color 0.3s ease;
+}
+
+#sendBtn:hover {
+    background-color: #1E3A8A; /* Rich Deep Blue */
+}
+
+/* Sleek Confirmation Popup */
+.confirm-popup {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: rgba(255, 255, 255, 0.95); /* Semi-transparent White */
+    padding: 10px;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.1);
+    display: none;
+    text-align: center;
+    z-index: 100;
+}
+
+.confirm-popup p {
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #333;
+}
+
+.confirm-btn {
+    background-color: #1D4ED8; /* Medium Rich Blue */
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    margin: 0 5px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.confirm-btn:hover {
+    background-color: #1E3A8A; /* Rich Deep Blue */
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(10px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Feedback Container */
+.feedback-container {
+    margin-top: 5px;
+    display: flex;
+    justify-content: flex-start;
+    gap: 10px;
+}
+
+.thumbs-up, .thumbs-down {
+    background-color: #e1f0f8; /* Light Blue */
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 5px;
+}
+
+.thumbs-up:hover {
+    background-color: #cce4ff; /* Lighter Blue */
+}
+
+.thumbs-down:hover {
+    background-color: #c0d7ff; /* Another Shade of Blue */
+}
+
+/* Feedback Input Styles */
+.feedback-input {
+    width: 80%;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 25px;
+    border: 1px solid #1D4ED8; /* Medium Rich Blue */
+    outline: none;
+    font-size: 14px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.feedback-input:focus {
+    border-color: #1E3A8A; /* Rich Deep Blue */
+}
+
+/* Submit Feedback Button */
+.submit-feedback-btn {
+    background-color: #1D4ED8; /* Medium Rich Blue */
+    color: white;
+    padding: 10px 20px;
+    margin-left: 10px;
+    border: none;
+    border-radius: 25px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.submit-feedback-btn:hover {
+    background-color: #1E3A8A; /* Rich Deep Blue */
+}
+
+/* Close Feedback Button (X) */
+.close-feedback-btn {
+    background-color: transparent;
+    color: #1D4ED8; /* Medium Rich Blue */
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+.close-feedback-btn:hover {
+    color: #1E3A8A; /* Rich Deep Blue */
+}
+
+/* Chat Body Image Styling */
+.chat-message img {
+    max-width: 100%;
+    height: auto;
+    margin-top: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Typing Indicator Styles */
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    color: #000000; /* Orange text */
+    font-style: italic;
+}
+
+.typing-dots {
+    display: flex;
+    align-items: center;
+    margin-left: 10px;
+}
+
+.typing-dots div {
+    width: 8px;
+    height: 8px;
+    margin: 0 2px;
+    background-color: #000000; /* Orange dots */
+    border-radius: 50%;
+    animation: blink 1.4s infinite both;
+}
+
+.typing-dots div:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.typing-dots div:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes blink {
+    0%, 80%, 100% {
+        opacity: 0;
+    }
+    40% {
+        opacity: 1;
+    }
+}
