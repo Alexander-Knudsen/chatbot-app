@@ -462,3 +462,91 @@ document.addEventListener('DOMContentLoaded', function() {
         return string.charAt(0).toUpperCase() + string.slice(1);
     }
 });
+
+
+// static/js/script.js
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Search Bar Functionality
+    window.filterBots = function() {
+        const input = document.getElementById('searchInput');
+        const filter = input.value.toLowerCase();
+        const botList = document.getElementById('botList');
+        const bots = botList.getElementsByClassName('bot-card');
+
+        for (let i = 0; i < bots.length; i++) {
+            const botName = bots[i].getAttribute('data-name');
+            const botDescription = bots[i].getAttribute('data-description');
+            if (botName.includes(filter) || botDescription.includes(filter)) {
+                bots[i].style.display = "";
+            } else {
+                bots[i].style.display = "none";
+            }
+        }
+    }
+
+    // Generate Embed Code Functionality
+    const embedButtons = document.querySelectorAll('.generate-embed-btn');
+
+    embedButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const botId = this.getAttribute('data-bot-id');
+            generateEmbedCode(botId);
+        });
+    });
+
+    function generateEmbedCode(botId) {
+        const botCard = document.querySelector(`.bot-card[data-bot-id="${botId}"]`);
+        const csrfToken = botCard.getAttribute('data-csrf-token');
+
+        fetch('/generate_embed', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken  // Include CSRF token in headers
+            },
+            body: JSON.stringify({ bot_id: botId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.embed_code) {
+                displayEmbedCode(botId, data.embed_code);
+            } else if (data.error) {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+            alert('An error occurred while generating the embed code.');
+        });
+    }
+
+    function displayEmbedCode(botId, embedCode) {
+        const embedContainer = document.getElementById(`embedCodeContainer${botId}`);
+        const embedTextarea = document.getElementById(`embedCode${botId}`);
+        embedTextarea.value = embedCode;
+        embedContainer.style.display = "block";
+    }
+
+    // Copy Embed Code to Clipboard
+    window.copyEmbedCode = function(botId) {
+        const embedTextarea = document.getElementById(`embedCode${botId}`);
+        embedTextarea.select();
+        embedTextarea.setSelectionRange(0, 99999); // For mobile devices
+
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                alert('Embed code copied to clipboard!');
+            } else {
+                alert('Failed to copy embed code.');
+            }
+        } catch (err) {
+            console.error('Error copying embed code:', err);
+            alert('An error occurred while copying the embed code.');
+        }
+
+        // Deselect the textarea
+        window.getSelection().removeAllRanges();
+    }
+});

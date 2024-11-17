@@ -5,20 +5,25 @@ import requests
 import urllib.parse
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify, session, abort, redirect, url_for, flash
+from flask import (
+    Flask, render_template, request, jsonify, session,
+    abort, redirect, url_for, flash
+)
 from flask_sqlalchemy import SQLAlchemy
 from flask_session import Session
 from flask_migrate import Migrate
-from flask_login import LoginManager, login_user, login_required, logout_user, current_user, UserMixin
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from functools import wraps
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf import CSRFProtect
 import logging
-from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import inspect
 
 from get_db_credentials import get_db_credentials  # Ensure this import is correct
+
+from flask_talisman import Talisman  # Import Flask-Talisman
 
 load_dotenv()
 
@@ -27,8 +32,8 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)  # Preferably set via environment variable
 
 # Configure server-side session
-app.config['SESSION_TYPE'] = 'filesystem'  # Store sessions on the server filesystem
-app.config['SESSION_FILE_DIR'] = './flask_session'  # Path where session files will be stored
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = './flask_session'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
@@ -60,10 +65,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-# Initialize Flask-Login
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
-
 # Initialize Flask-Limiter
 limiter = Limiter(
     app=app,
@@ -75,9 +76,6 @@ limiter = Limiter(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Token Serializer
-serializer = URLSafeTimedSerializer(app.secret_key)
-
 # Retrieve the OpenAI API Key and Google Maps API Key from the environment
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
@@ -87,7 +85,93 @@ if not OPENAI_API_KEY:
 if not GOOGLE_MAPS_API_KEY:
     raise ValueError("Google Maps API key not found. Please set it as an environment variable.")
 
-# Load all bot configurations
+# Initialize Flask-Talisman with CSP configuration
+csp = {
+    'default-src': [
+        "'self'",
+        'https://cdn.jsdelivr.net',
+    ],
+    'img-src': [
+        "'self'",
+        'data:',
+        'https:',
+    ],
+    'script-src': [
+        "'self'",
+        'https://cdn.jsdelivr.net',
+    ],
+    'style-src': [
+        "'self'",
+        'https://cdn.jsdelivr.net',
+        "'unsafe-inline'",  # Consider removing in production
+    ],
+    'object-src': ["'none'"],
+    'base-uri': ["'self'"]
+}
+
+Talisman(
+    app,
+    content_security_policy=csp,
+    content_security_policy_nonce_in=['script-src']
+)
+
+# Database Models
+
+class Bot(db.Model):
+    __tablename__ = 'bots'
+
+    id = db.Column(db.String(50), primary_key=True)
+    name = db.Column(db.String(150), unique=True, nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    image = db.Column(db.String(150))  # Optional image field
+
+    # Relationships
+    conversations = db.relationship('Conversation', back_populates='bot', lazy=True)
+
+class Conversation(db.Model):
+    __tablename__ = 'conversations'
+    id = db.Column(db.String(128), primary_key=True)
+    bot_id = db.Column(db.String(50), db.ForeignKey('bots.id'), nullable=False)
+    bot = db.relationship('Bot', back_populates='conversations')
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    messages = db.relationship('Message', back_populates='conversation', lazy=True)
+    feedbacks = db.relationship('Feedback', back_populates='conversation', lazy=True)
+
+class Message(db.Model):
+    __tablename__ = 'messages'
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.String(128), db.ForeignKey('conversations.id'), nullable=False)
+    conversation = db.relationship('Conversation', back_populates='messages')
+    bot_id = db.Column(db.String(50), db.ForeignKey('bots.id'), nullable=False)
+    sender = db.Column(db.String(10), nullable=False)  # 'user' or 'bot'
+    content = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(50))  # Optional category
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Feedback(db.Model):
+    __tablename__ = 'feedback'
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.String(128), db.ForeignKey('conversations.id'), nullable=False)
+    conversation = db.relationship('Conversation', back_populates='feedbacks')
+    feedback_type = db.Column(db.String(10), nullable=False)  # 'positive' or 'negative'
+    user_message = db.Column(db.Text, nullable=False)
+    bot_response = db.Column(db.Text, nullable=False)
+    user_feedback = db.Column(db.Text)  # Optional detailed feedback
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Simple Authentication Decorator
+
+def login_required_custom(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            flash('Please log in to access this page.', 'error')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Function to load bot configurations and insert into the database
 def load_bot_configs():
     config_dir = os.path.join(os.path.dirname(__file__), 'config')
     bot_configs = {}
@@ -100,75 +184,37 @@ def load_bot_configs():
                     bot_configs[bot_id] = config
                 else:
                     logger.warning(f"Bot configuration in {filename} missing 'bot_id'.")
+
+    # Use SQLAlchemy's inspector to check if the 'bots' table exists
+    inspector = inspect(db.engine)
+    if inspector.has_table('bots'):
+        # Insert bots into database if they don't already exist
+        for bot_id, config in bot_configs.items():
+            bot = Bot.query.filter_by(id=bot_id).first()
+            if not bot:
+                bot = Bot(
+                    id=bot_id,
+                    name=config.get('bot_name', 'Unnamed Bot'),
+                    description=config.get('description', 'No description available.'),
+                    image=config.get('image')
+                )
+                db.session.add(bot)
+                logger.info(f"Added bot: {bot.name}")
+
+        try:
+            db.session.commit()
+            logger.info("All bots have been loaded into the database.")
+        except IntegrityError as e:
+            db.session.rollback()
+            logger.error(f"Error inserting bots into the database: {e}")
+    else:
+        logger.info("Bots table does not exist yet. Skipping bot insertion.")
+
     return bot_configs
 
-bot_configs = load_bot_configs()
-
-# Database Models
-
-class User(UserMixin, db.Model):
-    __tablename__ = 'users'
-
-    id = db.Column(db.Integer, primary_key=True)  # Keep as Integer for auto-increment
-    email = db.Column(db.String(150), unique=True, nullable=False)  # New Email Field
-    username = db.Column(db.String(150), unique=True, nullable=False)
-    password_hash = db.Column(db.Text, nullable=False)  # Changed to db.Text
-
-    # Relationships
-    conversations = db.relationship('Conversation', backref='user', lazy=True)
-    embed_tokens = db.relationship('EmbedToken', backref='user', lazy=True)
-    feedbacks = db.relationship('Feedback', backref='user', lazy=True)
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-    
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-class EmbedToken(db.Model):
-    __tablename__ = 'embed_tokens'
-    id = db.Column(db.String(128), primary_key=True)
-    token = db.Column(db.String(256), unique=True, nullable=False)
-    bot_id = db.Column(db.String(50), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # Integer to match User.id
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime, nullable=False)
-    revoked = db.Column(db.Boolean, default=False)
-
-class Conversation(db.Model):
-    __tablename__ = 'conversations'
-    id = db.Column(db.String(128), primary_key=True)  # UUIDs for conversation IDs
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # Integer to match User.id
-    bot_id = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-    messages = db.relationship('Message', backref='conversation', lazy=True)
-    feedbacks = db.relationship('Feedback', backref='conversation', lazy=True)
-
-class Message(db.Model):
-    __tablename__ = 'messages'
-    id = db.Column(db.Integer, primary_key=True)
-    conversation_id = db.Column(db.String(128), db.ForeignKey('conversations.id'), nullable=False)
-    sender = db.Column(db.String(10), nullable=False)  # 'user' or 'bot'
-    content = db.Column(db.Text, nullable=False)
-    category = db.Column(db.String(50))  # Optional category
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Feedback(db.Model):
-    __tablename__ = 'feedback'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # Integer to match User.id
-    conversation_id = db.Column(db.String(128), db.ForeignKey('conversations.id'), nullable=False)
-    feedback_type = db.Column(db.String(10), nullable=False)  # 'positive' or 'negative'
-    user_message = db.Column(db.Text, nullable=False)
-    bot_response = db.Column(db.Text, nullable=False)
-    user_feedback = db.Column(db.Text)  # Optional detailed feedback
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-# User Loader for Flask-Login
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+# Load bot configurations and insert into the database within app context
+with app.app_context():
+    bot_configs = load_bot_configs()
 
 # Function to create the system message with specific instructions and bot data
 def create_system_message(bot_config):
@@ -215,7 +261,7 @@ def query_chatgpt(messages, max_tokens=700, temperature=0.5):
             'Content-Type': 'application/json'
         },
         json={
-            'model': 'gpt-4',  # Update model as needed
+            'model': 'gpt-4o',  # Corrected model name
             'messages': formatted_messages,
             'max_tokens': max_tokens,
             'temperature': temperature
@@ -248,7 +294,7 @@ def categorize_message(user_message):
             'Content-Type': 'application/json'
         },
         json={
-            'model': 'gpt-4',  # Update model as needed
+            'model': 'gpt-4o',  # Corrected model name
             'messages': [
                 {'role': 'system', 'content': 'You are a helpful assistant that categorizes user messages.'},
                 {'role': 'user', 'content': categorization_prompt}
@@ -274,14 +320,14 @@ def categorize_message(user_message):
 def get_common_themes():
     # Query messages and count categories
     results = db.session.query(
-        Message.category, db.func.count(Message.category)
+        Message.category, func.count(Message.category)
     ).filter(
         Message.sender == 'user',
         Message.category != None
     ).group_by(
         Message.category
     ).order_by(
-        db.func.count(Message.category).desc()
+        func.count(Message.category).desc()
     ).all()
 
     # Convert results to a dictionary
@@ -293,34 +339,55 @@ def themes():
     common_themes = get_common_themes()
     return jsonify(common_themes)
 
-# Home route to display all bots
-@app.route('/')
-def home():
-    bots = []
-    for bot_id, config in bot_configs.items():
-        bots.append({
-            'id': bot_id,
-            'name': config.get('bot_name', 'Unnamed Bot'),
-            'description': config.get('description', 'No description available.'),
-            'url': f"/{bot_id}",
-            'image': config.get('image')  # Optional: Include if you have images
-        })
-    return render_template('index.html', bots=bots)
+# Simple Authentication Routes
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        # Get form data
+        username = request.form['username'].strip()
+        password = request.form['password']
+
+        # Get predefined credentials from environment variables
+        predefined_username = os.getenv('APP_USERNAME')
+        predefined_password = os.getenv('APP_PASSWORD')
+
+        # Validate that environment variables are set
+        if not predefined_username or not predefined_password:
+            flash('Server configuration error. Please contact the administrator.', 'error')
+            return redirect(url_for('login'))
+
+        # Check if credentials match
+        if username == predefined_username and password == predefined_password:
+            # Set session as logged in
+            session['logged_in'] = True
+            flash('Logged in successfully!', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password.', 'error')
+            return redirect(url_for('login'))
+    else:
+        return render_template('login.html')  # Render the login template for GET request
+
+@app.route('/logout')
+@login_required_custom
+def logout():
+    session.pop('logged_in', None)
+    flash('You have been logged out.', 'success')
+    return redirect(url_for('login'))
 
 # Serve bot route with login required
 @app.route('/<bot_id>', methods=['GET'])
-@login_required  # Ensure the user is logged in
+@login_required_custom  # Ensure the user is logged in
 def serve_bot(bot_id):
     config = bot_configs.get(bot_id)
     if not config:
         abort(404, description="Bot not found.")
-    # Optionally, check if the user has access to this bot
-    # For now, assuming all logged-in users have access to all bots
     return render_template('chatbot.html', config=config)
 
 # Chat API route with CSRF protection
 @app.route('/api/<bot_id>/chat', methods=['POST'])
-@login_required  # Ensure the user is logged in
+@login_required_custom  # Ensure the user is logged in
 @csrf.exempt     # Exempt from CSRF protection because we're using AJAX
 def chat(bot_id):
     config = bot_configs.get(bot_id)
@@ -335,7 +402,6 @@ def chat(bot_id):
     if not conversation_id:
         conversation = Conversation(
             id=str(uuid.uuid4()),
-            user_id=current_user.id,
             bot_id=bot_id
         )
         db.session.add(conversation)
@@ -348,7 +414,6 @@ def chat(bot_id):
             # If conversation not found in DB, create a new one
             conversation = Conversation(
                 id=str(uuid.uuid4()),
-                user_id=current_user.id,
                 bot_id=bot_id
             )
             db.session.add(conversation)
@@ -369,6 +434,7 @@ def chat(bot_id):
         # Save bot's response to the database
         bot_message_entry = Message(
             conversation_id=conversation_id,
+            bot_id=bot_id,
             sender='bot',
             content=greeting_message
         )
@@ -386,6 +452,7 @@ def chat(bot_id):
     # Save user's message to the database
     user_message_entry = Message(
         conversation_id=conversation_id,
+        bot_id=bot_id,
         sender='user',
         content=user_message,
         category=category
@@ -404,6 +471,7 @@ def chat(bot_id):
     # Save assistant's response to the database
     bot_message_entry = Message(
         conversation_id=conversation_id,
+        bot_id=bot_id,
         sender='bot',
         content=response_message
     )
@@ -417,7 +485,7 @@ def chat(bot_id):
 
 # Feedback API route
 @app.route('/api/<bot_id>/feedback', methods=['POST'])
-@login_required  # Ensure the user is logged in
+@login_required_custom  # Ensure the user is logged in
 @csrf.exempt     # Exempt from CSRF protection because we're using AJAX
 def feedback(bot_id):
     data = request.get_json()
@@ -433,7 +501,6 @@ def feedback(bot_id):
 
     # Create a new Feedback object
     feedback_entry = Feedback(
-        user_id=current_user.id,
         conversation_id=conversation_id,
         feedback_type=feedback_type,
         user_message=user_message,
@@ -450,13 +517,13 @@ def feedback(bot_id):
         return jsonify({'error': 'An error occurred while saving feedback.'}), 500
 
     # Log the feedback to the console (optional)
-    logger.info(f"Feedback received from user {current_user.id}: {feedback_type}")
+    logger.info(f"Feedback received: {feedback_type}")
 
     return jsonify({'response': 'Feedback received.'})
 
 # Clear conversation API route
 @app.route('/api/<bot_id>/clear', methods=['POST'])
-@login_required  # Ensure the user is logged in
+@login_required_custom  # Ensure the user is logged in
 @csrf.exempt     # Exempt from CSRF protection because we're using AJAX
 def clear_conversation(bot_id):
     session.pop('conversation_history', None)
@@ -465,7 +532,7 @@ def clear_conversation(bot_id):
 
 # Directions API route
 @app.route('/api/<bot_id>/directions', methods=['POST'])
-@login_required  # Ensure the user is logged in
+@login_required_custom  # Ensure the user is logged in
 @csrf.exempt     # Exempt from CSRF protection because we're using AJAX
 def directions(bot_id):
     data = request.get_json()
@@ -498,146 +565,177 @@ def directions(bot_id):
 
     return jsonify(response)
 
-# Registration route
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        email = request.form['email'].strip().lower()
-        username = request.form['username'].strip()
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
+# Home route to display all bots
+@app.route('/')
+def home():
+    bots = []
+    for bot_id, config in bot_configs.items():
+        bots.append({
+            'id': bot_id,
+            'name': config.get('bot_name', 'Unnamed Bot'),
+            'description': config.get('description', 'No description available.'),
+            'url': f"/{bot_id}",
+            'image': config.get('image')  # Optional: Include if you have images
+        })
+    return render_template('index.html', bots=bots)
 
-        # Basic validation
-        if not email or not username or not password or not confirm_password:
-            flash('Please fill out all fields.', 'error')
-            return redirect(url_for('register'))
-        
-        if password != confirm_password:
-            flash('Passwords do not match.', 'error')
-            return redirect(url_for('register'))
-        
-        # Check if email already exists
-        if User.query.filter_by(email=email).first():
-            flash('Email already registered!', 'error')
-            return redirect(url_for('register'))
-        
-        # Check if username already exists
-        if User.query.filter_by(username=username).first():
-            flash('Username already exists!', 'error')
-            return redirect(url_for('register'))
-        
-        # Create new user
-        user = User(
-            email=email,
-            username=username
-        )
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
-        login_user(user)
-        flash('Registration successful!', 'success')
-        return redirect(url_for('home'))
-    return render_template('register.html')
+# Dashboard Route
+@app.route('/dashboard')
+@login_required_custom
+def dashboard():
+    # Fetch all bots
+    bots = Bot.query.all()
 
-# Login route
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        # Get form data
-        email = request.form['email'].strip().lower()
-        password = request.form['password']
+    dashboard_data = []
 
-        # Query the user from the database using email
-        user = User.query.filter_by(email=email).first()
+    for bot in bots:
+        # Total interactions (Total questions asked)
+        total_interactions = Message.query.filter_by(bot_id=bot.id).count()
 
-        # Check if user exists and password is correct
-        if user and user.check_password(password):
-            login_user(user)
-            flash('Logged in successfully!', 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page) if next_page else redirect(url_for('home'))
+        # Unique users (number of unique conversation IDs)
+        unique_users = db.session.query(Conversation.id).filter_by(bot_id=bot.id).distinct().count()
+
+        # Active users (today)
+        today = datetime.utcnow().date()
+        active_users = db.session.query(Conversation.id).filter(
+            Conversation.bot_id == bot.id,
+            func.date(Conversation.timestamp) == today
+        ).distinct().count()
+
+        # Average response time over time (average duration per day)
+        # Step 1: Create a subquery to calculate response times
+        response_times_subquery = db.session.query(
+            Message.conversation_id,
+            func.date(Message.timestamp).label('date'),
+            (Message.timestamp - func.lag(Message.timestamp).over(
+                partition_by=Message.conversation_id,
+                order_by=Message.timestamp
+            )).label('response_time')
+        ).filter(
+            Message.bot_id == bot.id,
+            Message.sender == 'bot'
+        ).subquery()
+
+        # Step 2: Query the subquery to calculate the average response time per day
+        avg_response_time_per_day = db.session.query(
+            response_times_subquery.c.date,
+            func.avg(response_times_subquery.c.response_time).label('avg_response_time')
+        ).group_by(
+            response_times_subquery.c.date
+        ).order_by(
+            response_times_subquery.c.date
+        ).all()
+
+        avg_response_dates = [artpd.date.strftime('%Y-%m-%d') for artpd in avg_response_time_per_day]
+        avg_response_times = [
+            artpd.avg_response_time.total_seconds() 
+            for artpd in avg_response_time_per_day 
+            if artpd.avg_response_time is not None
+        ]
+
+        # User satisfaction (number of thumbs up and thumbs down)
+        positive_feedbacks = db.session.query(Feedback).join(Conversation).filter(
+            Conversation.bot_id == bot.id,
+            Feedback.feedback_type == 'positive'
+        ).count()
+
+        negative_feedbacks = db.session.query(Feedback).join(Conversation).filter(
+            Conversation.bot_id == bot.id,
+            Feedback.feedback_type == 'negative'
+        ).count()
+
+        total_feedbacks = positive_feedbacks + negative_feedbacks
+
+        if total_feedbacks > 0:
+            satisfaction_rate = (positive_feedbacks / total_feedbacks) * 100
         else:
-            flash('Invalid email or password.', 'error')
-            return redirect(url_for('login'))  # Redirect back to login page with error message
-    else:
-        return render_template('login.html')  # Render the login template for GET request
+            satisfaction_rate = 0
 
-# Logout route
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    flash('You have been logged out.', 'success')
-    return redirect(url_for('home'))
+        # Top query categories
+        top_categories = db.session.query(
+            Message.category, func.count(Message.id).label('count')
+        ).filter(
+            Message.bot_id == bot.id,
+            Message.sender == 'user'
+        ).group_by(Message.category).order_by(func.count(Message.id).desc()).all()
 
-# Embed Code Generation Route
-@app.route('/generate_embed', methods=['POST'])
-@login_required
-@limiter.limit("10 per hour")
-def generate_embed():
-    data = request.get_json()
-    bot_id = data.get('bot_id')
-    if not bot_id or bot_id not in bot_configs:
-        return jsonify({'error': 'Invalid bot ID'}), 400
+        # Peak usage times (number of interactions per hour)
+        peak_usage = db.session.query(
+            func.extract('hour', Message.timestamp).label('hour'),
+            func.count(Message.id).label('count')
+        ).filter(
+            Message.bot_id == bot.id
+        ).group_by('hour').order_by('hour').all()
 
-    token = generate_embed_token(bot_id, current_user.id)
-    embed_url = f"{request.url_root}embed/{bot_id}?token={token}"
-    embed_code = f'<iframe src="{embed_url}" width="350" height="500" frameborder="0" sandbox="allow-scripts allow-same-origin"></iframe>'
+        hours = [int(pu.hour) for pu in peak_usage]
+        counts = [pu.count for pu in peak_usage]
 
-    return jsonify({'embed_code': embed_code})
+        # Chats per day (number of conversations per day)
+        chats_per_day = db.session.query(
+            func.date(Conversation.timestamp).label('date'),
+            func.count(Conversation.id).label('count')
+        ).filter(
+            Conversation.bot_id == bot.id
+        ).group_by('date').order_by('date').all()
 
-# Token Generation Function
-def generate_embed_token(bot_id, user_id, expiration=86400):
-    data = {'bot_id': bot_id, 'user_id': user_id}
-    token = serializer.dumps(data)
-    expires_at = datetime.utcnow() + timedelta(seconds=expiration)
+        dates = [cpd.date.strftime('%Y-%m-%d') for cpd in chats_per_day]
+        chat_counts = [cpd.count for cpd in chats_per_day]
 
-    embed_token = EmbedToken(
-        id=str(uuid.uuid4()),
-        token=token,
-        bot_id=bot_id,
-        user_id=user_id,
-        expires_at=expires_at
-    )
-    db.session.add(embed_token)
-    db.session.commit()
+        # Conversation lengths (number of messages per conversation)
+        conversation_lengths = db.session.query(
+            Conversation.id,
+            func.count(Message.id).label('message_count')
+        ).join(Message).filter(
+            Conversation.bot_id == bot.id
+        ).group_by(Conversation.id).all()
 
-    return token
+        lengths = [cl.message_count for cl in conversation_lengths]
 
-# Token Validation Decorator
-def token_required(f):
-    @wraps(f)
-    def decorated_function(bot_id, *args, **kwargs):
-        token = request.args.get('token')
-        if not token:
-            abort(403, description="Token is missing.")
+        # Create bins for the histogram
+        max_length = max(lengths) if lengths else 0
+        bins = list(range(1, max_length + 1))
+        conv_length_counts = [lengths.count(i) for i in bins]
 
-        try:
-            data = serializer.loads(token, max_age=86400)  # Token expires in 1 day
-            if data['bot_id'] != bot_id:
-                abort(403, description="Invalid token for this bot.")
-        except SignatureExpired:
-            abort(403, description="Token has expired.")
-        except BadSignature:
-            abort(403, description="Invalid token.")
+        # Calculate Error Rate (if applicable)
+        # Assuming 'error_rate' is based on messages containing the word "error"
+        error_messages = Message.query.filter(
+            Message.bot_id == bot.id,
+            Message.sender == 'bot',
+            Message.content.ilike('%error%')
+        ).count()
+        error_rate = (error_messages / total_interactions * 100) if total_interactions > 0 else 0
 
-        return f(bot_id, *args, **kwargs)
-    return decorated_function
+        dashboard_data.append({
+            'bot': bot,
+            'total_interactions': total_interactions,
+            'unique_users': unique_users,
+            'active_users': active_users,
+            'average_response_time': round(sum(avg_response_times) / len(avg_response_times), 2) if avg_response_times else 0,
+            'positive_feedbacks': positive_feedbacks,
+            'negative_feedbacks': negative_feedbacks,
+            'satisfaction_rate': round(satisfaction_rate, 2),
+            'error_rate': round(error_rate, 2),
+            'top_categories': top_categories[:5],  # Top 5 categories
+            'peak_hours': hours,
+            'peak_counts': counts,
+            'chat_dates': dates,
+            'chat_counts': chat_counts,
+            'avg_response_dates': avg_response_dates,
+            'avg_response_times': avg_response_times,
+            'conv_length_bins': bins,
+            'conv_length_counts': conv_length_counts,
+        })
 
-# Embed route with token validation
-@app.route('/embed/<bot_id>', methods=['GET'])
-@token_required
-def embed_bot(bot_id):
-    config = bot_configs.get(bot_id)
-    if not config:
-        abort(404, description="Bot not found.")
-    return render_template('chatbot.html', config=config)
+    return render_template('dashboard.html', dashboard_data=dashboard_data)
 
-# After Request to set CSP Headers
-@app.after_request
-def set_csp_headers(response):
-    response.headers['Content-Security-Policy'] = "script-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self';"
-    return response
+# Error Handlers
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template('403.html'), 403
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
 
 if __name__ == '__main__':
     app.run(debug=True)

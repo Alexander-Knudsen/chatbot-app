@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bot Dashboard</title>
+    <!-- Include Bootstrap CSS for styling -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <!-- Include Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Meta tags for responsive design -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Custom CSS (Optional) -->
+    <style>
+        .chart-container {
+            position: relative;
+            margin: auto;
+            height: 400px;
+            width: 80%;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">Bot Dashboard</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="/">Home</a>
+                    </li>
+                    <!-- Add other navigation items if needed -->
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1 class="mt-4">Bot Dashboard</h1>
+        {% for data in dashboard_data %}
+            <div class="card mt-5">
+                <div class="card-body">
+                    <h2 class="card-title">{{ data.bot.name }}</h2>
+                    <p class="card-text">{{ data.bot.description }}</p>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h4>Total Interactions: {{ data.total_interactions }}</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h4>Unique Users: {{ data.unique_users }}</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h4>Active Users (Today): {{ data.active_users }}</h4>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-md-4">
+                            <h4>Average Response Time: {{ data.average_response_time }} seconds</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h4>User Satisfaction: {{ data.satisfaction_rate }}%</h4>
+                            <p>👍 {{ data.positive_feedbacks }} | 👎 {{ data.negative_feedbacks }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h4>Error Rate: {{ data.error_rate }}%</h4>
+                        </div>
+                    </div>
+
+                    <!-- Top Query Categories -->
+                    <h4 class="mt-4">Top Query Categories</h4>
+                    <ul>
+                        {% for category, count in data.top_categories %}
+                            <li>{{ category | capitalize }}: {{ count }}</li>
+                        {% endfor %}
+                    </ul>
+
+                    <!-- Peak Usage Times Chart -->
+                    <div class="chart-container">
+                        <canvas id="peakUsageChart_{{ data.bot.id }}"></canvas>
+                    </div>
+
+                    <!-- Chats Per Day Chart -->
+                    <div class="chart-container mt-5">
+                        <canvas id="chatsPerDayChart_{{ data.bot.id }}"></canvas>
+                    </div>
+
+                    <!-- Category Pie Chart -->
+                    <div class="chart-container mt-5">
+                        <canvas id="categoryPieChart_{{ data.bot.id }}"></canvas>
+                    </div>
+
+                    <!-- Average Response Time Chart -->
+                    <div class="chart-container mt-5">
+                        <canvas id="avgResponseTimeChart_{{ data.bot.id }}"></canvas>
+                    </div>
+
+                    <!-- Conversation Length Histogram -->
+                    <div class="chart-container mt-5">
+                        <canvas id="convLengthChart_{{ data.bot.id }}"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Scripts -->
+            <script nonce="{{ csp_nonce() }}">
+                // Ensure the DOM is loaded before executing the scripts
+                document.addEventListener('DOMContentLoaded', function() {
+                    // Peak Usage Times Chart
+                    var ctxPeak = document.getElementById('peakUsageChart_{{ data.bot.id }}').getContext('2d');
+                    var peakUsageChart = new Chart(ctxPeak, {
+                        type: 'bar',
+                        data: {
+                            labels: {{ data.peak_hours | tojson }},
+                            datasets: [{
+                                label: 'Interactions',
+                                data: {{ data.peak_counts | tojson }},
+                                backgroundColor: 'rgba(75, 192, 192, 0.6)'
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Hour of the Day' }
+                                },
+                                y: {
+                                    title: { display: true, text: 'Number of Interactions' }
+                                }
+                            }
+                        }
+                    });
+
+                    // Chats Per Day Chart
+                    var ctxChats = document.getElementById('chatsPerDayChart_{{ data.bot.id }}').getContext('2d');
+                    var chatsPerDayChart = new Chart(ctxChats, {
+                        type: 'line',
+                        data: {
+                            labels: {{ data.chat_dates | tojson }},
+                            datasets: [{
+                                label: 'Chats',
+                                data: {{ data.chat_counts | tojson }},
+                                borderColor: 'rgba(153, 102, 255, 0.6)',
+                                fill: false
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Date' }
+                                },
+                                y: {
+                                    title: { display: true, text: 'Number of Chats' }
+                                }
+                            }
+                        }
+                    });
+
+                    // Category Pie Chart
+                    var ctxCategory = document.getElementById('categoryPieChart_{{ data.bot.id }}').getContext('2d');
+                    var categoryPieChart = new Chart(ctxCategory, {
+                        type: 'pie',
+                        data: {
+                            labels: {{ data.top_categories | map(attribute=0) | list | tojson }},
+                            datasets: [{
+                                data: {{ data.top_categories | map(attribute=1) | list | tojson }},
+                                backgroundColor: [
+                                    'rgba(255, 99, 132, 0.6)',
+                                    'rgba(54, 162, 235, 0.6)',
+                                    'rgba(255, 206, 86, 0.6)',
+                                    'rgba(75, 192, 192, 0.6)',
+                                    'rgba(153, 102, 255, 0.6)'
+                                ]
+                            }]
+                        }
+                    });
+
+                    // Average Response Time Chart
+                    var ctxAvgResponse = document.getElementById('avgResponseTimeChart_{{ data.bot.id }}').getContext('2d');
+                    var avgResponseTimeChart = new Chart(ctxAvgResponse, {
+                        type: 'line',
+                        data: {
+                            labels: {{ data.avg_response_dates | tojson }},
+                            datasets: [{
+                                label: 'Avg Response Time (s)',
+                                data: {{ data.avg_response_times | tojson }},
+                                borderColor: 'rgba(255, 159, 64, 0.6)',
+                                fill: false
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Date' }
+                                },
+                                y: {
+                                    title: { display: true, text: 'Seconds' }
+                                }
+                            }
+                        }
+                    });
+
+                    // Conversation Length Histogram
+                    var ctxConvLength = document.getElementById('convLengthChart_{{ data.bot.id }}').getContext('2d');
+                    var convLengthChart = new Chart(ctxConvLength, {
+                        type: 'bar',
+                        data: {
+                            labels: {{ data.conv_length_bins | tojson }},
+                            datasets: [{
+                                label: 'Conversations',
+                                data: {{ data.conv_length_counts | tojson }},
+                                backgroundColor: 'rgba(255, 205, 86, 0.6)'
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Number of Messages' }
+                                },
+                                y: {
+                                    title: { display: true, text: 'Number of Conversations' }
+                                }
+                            }
+                        }
+                    });
+                });
+            </script>
+        {% endfor %}
+    </div>
+
+    <!-- Include Bootstrap JS and Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" nonce="{{ csp_nonce() }}"></script>
+</body>
+</html>

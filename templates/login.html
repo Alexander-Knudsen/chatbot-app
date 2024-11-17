@@ -29,8 +29,8 @@
       <!-- CSRF Token -->
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div>
-          <label for="email">Email:</label><br>
-          <input type="email" id="email" name="email" required>
+          <label for="username">Username:</label><br>
+          <input type="text" id="username" name="username" required autofocus>
       </div>
       <div>
           <label for="password">Password:</label><br>
@@ -38,8 +38,6 @@
       </div>
       <button type="submit">Login</button>
   </form>
-  <p>Don't have an account? <a href="{{ url_for('register') }}">Register here</a>.</p>
-  <!-- Display Flash Messages -->
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       <ul>
